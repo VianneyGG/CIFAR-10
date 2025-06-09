@@ -38,7 +38,7 @@ print(f"Batch size: {batch_size}")
 # Import your models after upload
 try:
     from CNN_simple import CNN_simple 
-    from CNN_improved import CNNImproved, create_model
+    from CNN_improved import CNN_improved, create_model
     print("✅ CNN models imported successfully")
 except ImportError as e:
     print(f"❌ Error importing CNN models: {e}")
@@ -494,7 +494,7 @@ if __name__ == "__main__":
     print("📸 Sample images from dataset:")
     display_sample_images(train_loader)    # Initialize model
     print("🧠 Initializing CNN model...")
-    model = CNNImproved(num_classes=10)
+    model = CNN_improved(num_classes=10)
     
     model = model.to(device)
     model_type = 'improved'

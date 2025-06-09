@@ -87,17 +87,49 @@ def load_cifar10_colab(batch_size=512, num_workers=2):
     return trainloader, testloader
 
 def save_model_colab(model, model_type='improved'):
-    """Save model and auto-download in Colab"""
+    """Save model to repository (Git-friendly)"""
     model_path = f'{model_type}_model_cifar10.pth'
     torch.save(model.state_dict(), model_path)
-    print(f"Model saved to {model_path}")
+    print(f"✅ Model saved to {model_path}")
     
-    # Auto-download the model file in Colab
+    # Also save a timestamped version for tracking
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamped_path = f'{model_type}_model_cifar10_{timestamp}.pth'
+    torch.save(model.state_dict(), timestamped_path)
+    print(f"📁 Timestamped backup: {timestamped_path}")
+    
+    # Create a simple training info file
+    info_file = f'{model_type}_training_info.txt'
+    with open(info_file, 'w') as f:
+        f.write(f"CIFAR-10 Training Information\n")
+        f.write(f"={'='*40}\n")
+        f.write(f"Model Type: {model_type}\n")
+        f.write(f"Timestamp: {timestamp}\n")
+        f.write(f"Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}\n")
+        f.write(f"PyTorch Version: {torch.__version__}\n")
+        f.write(f"Model File: {model_path}\n")
+        f.write(f"Backup File: {timestamped_path}\n")
+    
+    print(f"📄 Training info saved to {info_file}")
+    
+    # Show Git status
     try:
-        files.download(model_path)
-        print(f"✅ Model downloaded to your computer")
+        import subprocess
+        result = subprocess.run(['git', 'status', '--porcelain'], 
+                              capture_output=True, text=True, cwd='.')
+        if result.returncode == 0:
+            print(f"\n📊 Git Status:")
+            if result.stdout.strip():
+                for line in result.stdout.strip().split('\n'):
+                    if '.pth' in line or '.txt' in line:
+                        print(f"   {line}")
+            else:
+                print("   No changes to commit")
+        else:
+            print("💡 Not in a Git repository or Git not available")
     except:
-        print("💡 Model saved but download failed - you can download manually")
+        print("💡 Git status check failed")
 
 def display_sample_images(dataloader, num_samples=8):
     """Display sample images from the dataset"""
@@ -236,42 +268,50 @@ def training_colab(trainloader, testloader, model, model_type, criterion, optimi
             print(f"   💾 Checkpoint saved: {checkpoint_path}")
 
     print("\n🎉 Training completed!")
-    
-    # Save the final trained model
+      # Save the final trained model
     save_model_colab(model, model_type)
     
-    # Plot training curves
-    plot_training_curves(train_losses, test_losses, train_acc, test_acc)
+    # Plot training curves and save to repository
+    plot_filename = plot_training_curves(train_losses, test_losses, train_acc, test_acc)
     
-    return train_losses, test_losses, train_acc, test_acc
+    return train_losses, test_losses, train_acc, test_acc, plot_filename
 
 def plot_training_curves(train_losses, test_losses, train_acc, test_acc):
-    """Plot training and validation curves"""
+    """Plot training and validation curves and save to repository"""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
     
     # Loss curves
-    ax1.plot(train_losses, label='Training Loss', color='blue')
-    ax1.plot(test_losses, label='Validation Loss', color='red')
+    ax1.plot(train_losses, label='Training Loss', color='blue', linewidth=2)
+    ax1.plot(test_losses, label='Validation Loss', color='red', linewidth=2)
     ax1.set_title('Training and Validation Loss')
     ax1.set_xlabel('Epoch')
     ax1.set_ylabel('Loss')
     ax1.legend()
-    ax1.grid(True)
+    ax1.grid(True, alpha=0.3)
     
     # Accuracy curves
-    ax2.plot(train_acc, label='Training Accuracy', color='blue')
-    ax2.plot(test_acc, label='Validation Accuracy', color='red')
+    ax2.plot(train_acc, label='Training Accuracy', color='blue', linewidth=2)
+    ax2.plot(test_acc, label='Validation Accuracy', color='red', linewidth=2)
     ax2.set_title('Training and Validation Accuracy')
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Accuracy (%)')
     ax2.legend()
-    ax2.grid(True)
+    ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
+    
+    # Save plot to repository
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    plot_filename = f'training_curves_{timestamp}.png'
+    plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
+    print(f"📈 Training curves saved to {plot_filename}")
+    
     plt.show()
+    return plot_filename
 
 def evaluate_model_colab(model, testloader, device):
-    """Evaluate model and show confusion matrix"""
+    """Evaluate model and show confusion matrix, save results to repository"""
     model.eval()
     correct = 0
     total = 0
@@ -303,9 +343,39 @@ def evaluate_model_colab(model, testloader, device):
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.title(f'Confusion Matrix - Test Accuracy: {accuracy:.2f}%')
+    
+    # Save confusion matrix to repository
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    cm_filename = f'confusion_matrix_{timestamp}.png'
+    plt.savefig(cm_filename, dpi=300, bbox_inches='tight')
+    print(f"📊 Confusion matrix saved to {cm_filename}")
+    
     plt.show()
     
-    return accuracy
+    # Save detailed results
+    results_filename = f'evaluation_results_{timestamp}.txt'
+    with open(results_filename, 'w') as f:
+        f.write(f"CIFAR-10 Model Evaluation Results\n")
+        f.write(f"={'='*40}\n")
+        f.write(f"Test Accuracy: {accuracy:.2f}%\n")
+        f.write(f"Total Test Samples: {total}\n")
+        f.write(f"Correct Predictions: {correct}\n")
+        f.write(f"Timestamp: {timestamp}\n")
+        f.write(f"Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}\n\n")
+        
+        # Per-class accuracy
+        f.write("Per-Class Accuracy:\n")
+        f.write("-" * 20 + "\n")
+        for i, class_name in enumerate(classes):
+            class_correct = sum((torch.tensor(all_preds) == i) & (torch.tensor(all_labels) == i))
+            class_total = sum(torch.tensor(all_labels) == i)
+            class_acc = 100.0 * class_correct / class_total if class_total > 0 else 0
+            f.write(f"{class_name:>10}: {class_acc:>6.2f}%\n")
+    
+    print(f"📄 Detailed results saved to {results_filename}")
+    
+    return accuracy, cm_filename, results_filename
 
 # === MAIN TRAINING EXECUTION ===
 if __name__ == "__main__":
@@ -354,19 +424,32 @@ if __name__ == "__main__":
     print(f"   Optimizer: Adam (lr=0.001)")
     print(f"   Scheduler: OneCycleLR (max_lr=0.01)")
     print(f"   Loss: CrossEntropyLoss")
-    
-    # Start training
+      # Start training
     print("\n🎯 Starting training...")
-    train_losses, test_losses, train_acc, test_acc = training_colab(
+    train_losses, test_losses, train_acc, test_acc, plot_file = training_colab(
         train_loader, testloader, model, model_type, 
         criterion, optimizer, scheduler, device, num_epochs
     )
     
     # Final evaluation
     print("\n📊 Final evaluation:")
-    final_accuracy = evaluate_model_colab(model, testloader, device)
+    final_accuracy, cm_file, results_file = evaluate_model_colab(model, testloader, device)
+    
+    # Git integration - show what files were created
+    print(f"\n📁 Files created in repository:")
+    print(f"   🤖 Model: {model_type}_model_cifar10.pth")
+    print(f"   📈 Training curves: {plot_file}")
+    print(f"   📊 Confusion matrix: {cm_file}")
+    print(f"   📄 Results: {results_file}")
+    print(f"   ℹ️  Training info: {model_type}_training_info.txt")
+    
+    # Provide Git commands for saving to repository
+    print(f"\n🔧 To save results to Git repository, run:")
+    print(f"   !git add *.pth *.png *.txt")
+    print(f"   !git commit -m 'Training results: {final_accuracy:.2f}% accuracy'")
+    print(f"   !git push")
     
     print(f"\n🏆 Training Summary:")
     print(f"   Final Validation Accuracy: {final_accuracy:.2f}%")
     print(f"   Best Validation Accuracy: {max(test_acc):.2f}%")
-    print(f"   Model saved and downloaded successfully!")
+    print(f"   All files saved to repository!")

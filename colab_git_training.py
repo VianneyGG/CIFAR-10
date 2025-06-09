@@ -7,9 +7,15 @@ print("=" * 50)
 
 # Clone repository (modify URL as needed)
 import os
+
+# ⚠️ IMPORTANT: Replace with your actual GitHub repository URL
+REPO_URL = "https://github.com/YOUR_USERNAME/CIFAR-10.git"
+
 if not os.path.exists('CIFAR-10'):
     print("📥 Cloning repository...")
-    !git clone https://github.com/YOUR_USERNAME/CIFAR-10.git
+    print(f"🔗 Repository URL: {REPO_URL}")
+    print("⚠️  Make sure to replace YOUR_USERNAME with your actual GitHub username!")
+    !git clone {REPO_URL}
     %cd CIFAR-10
 else:
     print("📁 Repository already exists, pulling latest changes...")

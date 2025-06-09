@@ -5,27 +5,6 @@
 print("🚀 CIFAR-10 Training with Git Integration")
 print("=" * 50)
 
-# Clone repository (modify URL as needed)
-import os
-
-# ⚠️ IMPORTANT: Replace with your actual GitHub repository URL
-REPO_URL = "https://github.com/VianneyGG/CIFAR-10.git"
-
-if not os.path.exists('CIFAR-10'):
-    print("📥 Cloning repository...")
-    print(f"🔗 Repository URL: {REPO_URL}")
-    print("⚠️  Make sure to replace YOUR_USERNAME with your actual GitHub username!")
-    !git clone {REPO_URL}
-    %cd CIFAR-10
-else:
-    print("📁 Repository already exists, pulling latest changes...")
-    %cd CIFAR-10
-    !git pull
-
-# 2. Install dependencies
-print("\n📦 Installing dependencies...")
-!pip install -q torch torchvision matplotlib seaborn scikit-learn tqdm
-
 # 3. Import libraries and setup
 import torch
 import torch.nn as nn

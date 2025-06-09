@@ -35,7 +35,7 @@ class ResidualBlock(nn.Module):
         
         return out
 
-class CNNImproved(nn.Module):
+class CNN_improved(nn.Module):
     """
     Enhanced CNN model with regularization to combat overfitting
     - Reduced model complexity
@@ -45,7 +45,7 @@ class CNNImproved(nn.Module):
     - Global average pooling to reduce parameters
     """
     def __init__(self, num_classes=10):
-        super(CNNImproved, self).__init__()
+        super(CNN_improved, self).__init__()
         
         # Initial convolution - reduced complexity
         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False)
@@ -181,7 +181,7 @@ def create_model(num_classes=10, print_info=True):
     Returns:
         CNNImproved: The enhanced CNN model
     """
-    model = CNNImproved(num_classes=num_classes)
+    model = CNN_improved(num_classes=num_classes)
     
     if print_info:
         model.print_model_info()

@@ -1,27 +1,21 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math  # Nécessaire pour les calculs cosinus
 
 class ResidualBlock(nn.Module):
-    """
-    Bloc résiduel de base pour ResNet
-    Implémente : output = F(x) + x
-    """
-    def __init__(self, in_channels, out_channels, stride=1):
+    """Enhanced residual block with dynamic dropout"""
+    def __init__(self, in_channels, out_channels, stride=1, dropout_rate=0.1):
         super(ResidualBlock, self).__init__()
         
-        # Première couche convolutionnelle du bloc
         self.conv1 = nn.Conv2d(in_channels, out_channels, 
                               kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
+        self.dropout1 = nn.Dropout2d(dropout_rate)
         
-        # Deuxième couche convolutionnelle du bloc
         self.conv2 = nn.Conv2d(out_channels, out_channels, 
                               kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
         
-        # Connexion skip - si les dimensions changent, on adapte x
         self.shortcut = nn.Sequential()
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
@@ -30,130 +24,209 @@ class ResidualBlock(nn.Module):
             )
     
     def forward(self, x):
-        # Sauvegarder l'entrée pour la connexion skip
         identity = x
         
-        # Passer par les couches du bloc
         out = F.relu(self.bn1(self.conv1(x)))
+        out = self.dropout1(out)
         out = self.bn2(self.conv2(out))
         
-        # Ajouter la connexion skip (adapte x si nécessaire)
         out += self.shortcut(identity)
-        
-        # Activation finale
         out = F.relu(out)
         
         return out
 
-class CNN_improved(nn.Module):
+class CNNImproved(nn.Module):
+    """
+    Enhanced CNN model with regularization to combat overfitting
+    - Reduced model complexity
+    - Progressive dropout strategy
+    - Batch normalization
+    - Residual connections
+    - Global average pooling to reduce parameters
+    """
     def __init__(self, num_classes=10):
-        super(CNN_improved, self).__init__()
+        super(CNNImproved, self).__init__()
         
-        # ═══════════════════════════════════════
-        # BLOC INITIAL - Extraction des features de base
-        # ═══════════════════════════════════════
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
+        # Initial convolution - reduced complexity
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(32)
         
-        # ═══════════════════════════════════════
-        # BLOCS RÉSIDUELS - Apprentissage profond stable
-        # ═══════════════════════════════════════
+        # Progressive feature extraction with residual blocks
+        self.layer1 = self._make_layer(32, 64, num_blocks=2, stride=1, dropout_rate=0.1)
+        self.layer2 = self._make_layer(64, 128, num_blocks=2, stride=2, dropout_rate=0.2)
+        self.layer3 = self._make_layer(128, 256, num_blocks=2, stride=2, dropout_rate=0.3)
         
-        # Niveau 1: 64 filtres, même taille (32x32)
-        self.layer1 = self._make_layer(64, 64, num_blocks=2, stride=1)
+        # Global Average Pooling reduces parameters significantly
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         
-        # Niveau 2: 128 filtres, réduction taille (16x16)
-        self.layer2 = self._make_layer(64, 128, num_blocks=2, stride=2)
+        # Progressive dropout strategy
+        self.dropout1 = nn.Dropout(0.3)
+        self.dropout2 = nn.Dropout(0.5)
         
-        # Niveau 3: 256 filtres, réduction taille (8x8)
-        self.layer3 = self._make_layer(128, 256, num_blocks=2, stride=2)
+        # Smaller classifier to prevent overfitting
+        self.fc1 = nn.Linear(256, 128)
+        self.fc2 = nn.Linear(128, num_classes)
         
-        # Niveau 4: 512 filtres, réduction taille (4x4)
-        self.layer4 = self._make_layer(256, 512, num_blocks=2, stride=2)
+        # Initialize weights
+        self._initialize_weights()
         
-        
-        # ═══════════════════════════════════════
-        # CLASSIFICATEUR FINAL avec COSINE SCHEDULED DROPOUT
-        # ═══════════════════════════════════════
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))  # Global Average Pooling
-        
-        # Configuration du Cosine Scheduled Dropout
-        self.dropout_config = {
-            'start_rate': 0.6,      # Taux de départ (60%)
-            'end_rate': 0.1,        # Taux final (10%)
-            'current_rate': 0.6     # Taux actuel (initialisé au départ)
-        }
-        
-        # Couche dropout principale (sera mise à jour dynamiquement)
-        self.dropout = nn.Dropout(self.dropout_config['current_rate'])
-        
-        self.fc = nn.Linear(512, num_classes)
-        
-    def _make_layer(self, in_channels, out_channels, num_blocks, stride):
-        """
-        Crée une séquence de blocs résiduels
-        """
+    def _make_layer(self, in_channels, out_channels, num_blocks, stride, dropout_rate):
+        """Create residual blocks with progressive dropout"""
         layers = []
-        
-        # Premier bloc (peut changer les dimensions)
-        layers.append(ResidualBlock(in_channels, out_channels, stride))
-        
-        # Blocs suivants (mêmes dimensions)
+        layers.append(ResidualBlock(in_channels, out_channels, stride, dropout_rate))
         for _ in range(1, num_blocks):
-            layers.append(ResidualBlock(out_channels, out_channels, stride=1))
-            
+            layers.append(ResidualBlock(out_channels, out_channels, stride=1, dropout_rate=dropout_rate))
         return nn.Sequential(*layers)
     
+    def _initialize_weights(self):
+        """Initialize weights using Xavier/He initialization"""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+    
     def forward(self, x):
-        # Bloc initial
-        x = F.relu(self.bn1(self.conv1(x)))  # [B, 64, 32, 32]
+        # Initial convolution
+        x = F.relu(self.bn1(self.conv1(x)))
         
-        # Passage par les blocs résiduels
-        x = self.layer1(x)  # [B, 64, 32, 32]
-        x = self.layer2(x)  # [B, 128, 16, 16]
-        x = self.layer3(x)  # [B, 256, 8, 8]
-        x = self.layer4(x)  # [B, 512, 4, 4]
+        # Progressive feature extraction
+        x = self.layer1(x)
+        x = self.dropout1(x)  # Early dropout
         
-        # Classification finale
-        x = self.avgpool(x)  # [B, 512, 1, 1]
-        x = torch.flatten(x, 1)  # [B, 512]
-        x = self.dropout(x)
-        x = self.fc(x)  # [B, 10]
+        x = self.layer2(x)
+        x = self.layer3(x)
+        
+        # Global average pooling
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        
+        # Classification head with dropout
+        x = self.dropout2(x)
+        x = F.relu(self.fc1(x))
+        x = self.dropout2(x)
+        x = self.fc2(x)
         
         return x
-
-    def update_dropout(self, epoch, total_epochs):
-        """
-        Met à jour le taux de dropout selon une fonction de type cosinus
-        """
-        # Calculer le taux de dropout actuel basé sur la progression de l'époque
-        progress = epoch / total_epochs  # Valeur entre 0 et 1
-        cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
-        
-        # Interpoler le taux de dropout entre start_rate et end_rate
-        new_rate = self.dropout_config['end_rate'] + \
-                   (self.dropout_config['start_rate'] - self.dropout_config['end_rate']) * cosine_decay
-        
-        # Mettre à jour le taux de la couche dropout
-        self.dropout.p = new_rate  # Met à jour le taux de la couche dropout
-        
-        # Sauvegarder le taux actuel
-        self.dropout_config['current_rate'] = new_rate
     
-    def get_current_dropout_rate(self):
-        """Retourne le taux de dropout actuel"""
-        return self.dropout_config['current_rate']
+    def get_num_parameters(self):
+        """Return the number of trainable parameters"""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
     
-    def set_dropout_config(self, start_rate=0.6, end_rate=0.1):
+    def update_dropout_rates(self, epoch, max_epochs):
         """
-        Configure les paramètres du dropout scheduling
+        Dynamic dropout adjustment based on training progress
+        Increases dropout as training progresses to prevent overfitting
+        """
+        # Calculate progression factor (0 to 1)
+        progress = min(epoch / max_epochs, 1.0)
         
-        Args:
-            start_rate (float): Taux de dropout initial (0.0 à 1.0)
-            end_rate (float): Taux de dropout final (0.0 à 1.0)
-        """
-        self.dropout_config['start_rate'] = start_rate
-        self.dropout_config['end_rate'] = end_rate
-        self.dropout_config['current_rate'] = start_rate
-        self.dropout.p = start_rate
+        # Dynamic dropout rates - start low, increase with training
+        base_rate = 0.1 + 0.2 * progress  # 0.1 to 0.3
+        mid_rate = 0.2 + 0.3 * progress   # 0.2 to 0.5
+        high_rate = 0.3 + 0.4 * progress  # 0.3 to 0.7
+        
+        # Update layer dropout rates
+        for layer in [self.layer1, self.layer2, self.layer3]:
+            for block in layer:
+                if hasattr(block, 'dropout1'):
+                    if layer == self.layer1:
+                        block.dropout1.p = base_rate
+                    elif layer == self.layer2:
+                        block.dropout1.p = mid_rate
+                    else:  # layer3
+                        block.dropout1.p = high_rate
+        
+        # Update classifier dropout
+        self.dropout1.p = 0.2 + 0.3 * progress  # 0.2 to 0.5
+        self.dropout2.p = 0.3 + 0.4 * progress  # 0.3 to 0.7
+    
+    def print_model_info(self):
+        """Print model architecture and parameter information"""
+        print("=" * 60)
+        print("🏗️  ENHANCED CNN ARCHITECTURE")
+        print("=" * 60)
+        print(f"📊 Total Parameters: {self.get_num_parameters():,}")
+        print(f"🎯 Target: Reduce overfitting gap from 21% to <10%")
+        print("=" * 60)
+        
+        print("\n🔧 MODEL FEATURES:")
+        print("• Residual connections for better gradient flow")
+        print("• Progressive dropout: 0.1 → 0.3 → 0.5")
+        print("• Batch normalization for training stability")
+        print("• Global average pooling to reduce parameters")
+        print("• Reduced complexity: 256 final features (vs 512)")
+        print("• Xavier/He weight initialization")
+        print("• Dynamic dropout adjustment during training")
+        
+        print("\n📈 EXPECTED IMPROVEMENTS:")
+        print("• Better generalization (reduce train-val gap)")
+        print("• More stable training curves")
+        print("• Improved validation accuracy: 78% → 85%+")
+        print("• Faster convergence with better regularization")
+        print("=" * 60)
 
+def create_model(num_classes=10, print_info=True):
+    """
+    Factory function to create the enhanced CNN model
+    
+    Args:
+        num_classes (int): Number of output classes (default: 10 for CIFAR-10)
+        print_info (bool): Whether to print model information
+    
+    Returns:
+        CNNImproved: The enhanced CNN model
+    """
+    model = CNNImproved(num_classes=num_classes)
+    
+    if print_info:
+        model.print_model_info()
+    
+    return model
+
+# Test the model if run directly
+if __name__ == "__main__":
+    print("🧪 Testing Enhanced CNN Model...")
+    
+    # Create model
+    model = create_model()
+    
+    # Test with sample input
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    
+    # Test forward pass
+    sample_input = torch.randn(4, 3, 32, 32).to(device)  # Batch of 4 CIFAR-10 images
+    
+    print(f"\n🔍 Testing forward pass...")
+    print(f"Input shape: {sample_input.shape}")
+    
+    with torch.no_grad():
+        output = model(sample_input)
+        print(f"Output shape: {output.shape}")
+        print(f"Output sample: {output[0][:5].cpu().numpy()}")
+    
+    # Test dynamic dropout update
+    print(f"\n🔄 Testing dynamic dropout update...")
+    print(f"Initial dropout rates:")
+    print(f"  Layer1 dropout: {model.layer1[0].dropout1.p:.3f}")
+    print(f"  Layer2 dropout: {model.layer2[0].dropout1.p:.3f}")
+    print(f"  Layer3 dropout: {model.layer3[0].dropout1.p:.3f}")
+    print(f"  Classifier dropout1: {model.dropout1.p:.3f}")
+    print(f"  Classifier dropout2: {model.dropout2.p:.3f}")
+    
+    # Simulate training progress
+    model.update_dropout_rates(epoch=25, max_epochs=50)  # Mid-training
+    print(f"\nAfter 25/50 epochs:")
+    print(f"  Layer1 dropout: {model.layer1[0].dropout1.p:.3f}")
+    print(f"  Layer2 dropout: {model.layer2[0].dropout1.p:.3f}")
+    print(f"  Layer3 dropout: {model.layer3[0].dropout1.p:.3f}")
+    print(f"  Classifier dropout1: {model.dropout1.p:.3f}")
+    print(f"  Classifier dropout2: {model.dropout2.p:.3f}")
+    
+    print(f"\n✅ Model test completed successfully!")
+    print(f"📊 Model ready for enhanced training with mixup and label smoothing")

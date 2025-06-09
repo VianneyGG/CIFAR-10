@@ -68,12 +68,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 ```
 
-### Cell 2: Upload CNN models
-```python
-from google.colab import files
-uploaded = files.upload()  # Upload CNN_simple.py and CNN_improved.py
-```
-
 ### Cell 3-N: Copy the rest from cifar10_colab.py
 
 ## Complete Git Workflow

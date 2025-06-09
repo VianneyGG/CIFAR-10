@@ -2,13 +2,13 @@
 # Adapted for Google Colab with GPU acceleration and optimized settings
 
 # === COLAB SETUP CELL ===
-# Run this first to install dependencies and check GPU
-!pip install -r requirements.txt
-
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
+import torchvision.datasets as datasets
+import torch.optim as optim
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -34,15 +34,11 @@ else:
 print(f"Batch size: {batch_size}")
 
 # === UPLOAD CNN MODELS CELL ===
-# Upload your CNN model files
-print("Please upload your CNN_simple.py and CNN_improved.py files")
-from google.colab import files
-uploaded = files.upload()
 
 # Import your models after upload
 try:
     from CNN_simple import CNN_simple 
-    from CNN_improved import CNN_improved
+    from CNN_improved import CNNImproved, create_model
     print("✅ CNN models imported successfully")
 except ImportError as e:
     print(f"❌ Error importing CNN models: {e}")
@@ -52,16 +48,63 @@ except ImportError as e:
 # Les 10 classes de CIFAR-10
 classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
+class LabelSmoothingCrossEntropy(nn.Module):
+    """
+    Label smoothing prevents the model from being overconfident
+    This helps with your overfitting issue
+    """
+    def __init__(self, smoothing=0.1):
+        super(LabelSmoothingCrossEntropy, self).__init__()
+        self.smoothing = smoothing
+        
+    def forward(self, pred, target):
+        n_class = pred.size(1)
+        one_hot = torch.zeros_like(pred).scatter(1, target.view(-1, 1), 1)
+        one_hot = one_hot * (1 - self.smoothing) + (1 - one_hot) * self.smoothing / (n_class - 1)
+        log_prob = F.log_softmax(pred, dim=1)
+        return F.kl_div(log_prob, one_hot, reduction='batchmean')
+
+def mixup_data(x, y, alpha=1.0):
+    """
+    Mixup augmentation that blends images and labels
+    Proven to reduce overfitting significantly
+    """
+    if alpha > 0:
+        lam = torch.distributions.beta.Beta(alpha, alpha).sample()
+    else:
+        lam = 1
+
+    batch_size = x.size()[0]
+    index = torch.randperm(batch_size)
+
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    """Mixup loss calculation"""
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
 def load_cifar10_colab(batch_size=512, num_workers=2):
-    """Colab-optimized CIFAR-10 data loading with GPU acceleration"""
-    # Transformations pour les données
-    transform = transforms.Compose([
+    """Colab-optimized CIFAR-10 data loading with enhanced data augmentation"""    # Enhanced transformations for training (combat overfitting)
+    transform_train = transforms.Compose([
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomRotation(15),  # Increased from 10
+        transforms.RandomAffine(0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),  # NEW
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
+        transforms.RandomErasing(p=0.1),  # Applied after ToTensor
+    ])
+    
+    # Standard transformations for testing
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))
     ])
     
     # Chargement du dataset CIFAR-10 (auto-download enabled)
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
     trainloader = torch.utils.data.DataLoader(
         trainset, 
         batch_size=batch_size, 
@@ -71,7 +114,7 @@ def load_cifar10_colab(batch_size=512, num_workers=2):
         drop_last=True    # Ensures consistent batch sizes
     )
     
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
     testloader = torch.utils.data.DataLoader(
         testset, 
         batch_size=batch_size, 
@@ -155,7 +198,7 @@ def display_sample_images(dataloader, num_samples=8):
     plt.show()
 
 def training_colab(trainloader, testloader, model, model_type, criterion, optimizer, scheduler, device, num_epochs):
-    """Colab-optimized training function with enhanced monitoring"""
+    """Enhanced training function with Mixup, Early Stopping and advanced strategies"""
     
     # Lists to store training statistics
     train_losses = []
@@ -163,12 +206,16 @@ def training_colab(trainloader, testloader, model, model_type, criterion, optimi
     test_acc = []
     train_acc = []
     
+    # Initialize Early Stopping
+    early_stopping = EarlyStopping(patience=7, min_delta=0.001)
+    
     # Display training info
-    print(f"🚀 Starting training on {device}")
+    print(f"🚀 Starting Enhanced Training on {device}")
     print(f"   Model: {model_type}")
     print(f"   Epochs: {num_epochs}")
     print(f"   Batch size: {trainloader.batch_size}")
     print(f"   Total batches per epoch: {len(trainloader)}")
+    print(f"   🎯 Targeting overfitting: Enhanced regularization strategies")
     print("-" * 60)
 
     for epoch in tqdm(range(num_epochs), desc='Training Epochs', unit='epoch', colour='blue'):
@@ -176,12 +223,11 @@ def training_colab(trainloader, testloader, model, model_type, criterion, optimi
         running_loss = 0.0
         correct = 0
         total = 0
+          # Update dropout rate if using improved model
+        if hasattr(model, 'update_dropout_rates'):
+            model.update_dropout_rates(epoch, num_epochs)
         
-        # Update dropout rate if using improved model
-        if hasattr(model, 'update_dropout'):
-            model.update_dropout(epoch, num_epochs)
-        
-        # Training phase with progress bar
+        # Training phase with progress bar and MIXUP
         batch_pbar = tqdm(enumerate(trainloader, 0), 
                          total=len(trainloader), 
                          desc=f'Epoch {epoch+1}/{num_epochs}',
@@ -194,25 +240,43 @@ def training_colab(trainloader, testloader, model, model_type, criterion, optimi
             # Zero the parameter gradients
             optimizer.zero_grad()
             
-            # Forward pass
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
+            # Apply Mixup augmentation 40% of the time
+            if torch.rand(1) < 0.4:
+                mixed_inputs, labels_a, labels_b, lam = mixup_data(inputs, labels, alpha=1.0)
+                outputs = model(mixed_inputs)
+                loss = mixup_criterion(criterion, outputs, labels_a, labels_b, lam)
+                
+                # For accuracy calculation with mixup (use original labels)
+                _, predicted = torch.max(outputs.data, 1)
+                correct += (lam * predicted.eq(labels_a).sum().item() + 
+                           (1 - lam) * predicted.eq(labels_b).sum().item())
+            else:
+                # Standard training
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                
+                # Statistics for non-mixup batches
+                _, predicted = torch.max(outputs.data, 1)
+                correct += (predicted == labels).sum().item()
             
             # Backward pass and optimize
             loss.backward()
+            
+            # Gradient Clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
             
             # Statistics
             running_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
-            correct += (predicted == labels).sum().item()
         
             # Update progress bar every 20 batches
             if i % 20 == 0:
+                current_acc = 100 * correct / total
                 batch_pbar.set_postfix({
                     'Loss': f'{loss.item():.4f}',
-                    'Acc': f'{100 * correct / total:.2f}%'
+                    'Acc': f'{current_acc:.2f}%'
                 })
         
         batch_pbar.close()
@@ -246,14 +310,21 @@ def training_colab(trainloader, testloader, model, model_type, criterion, optimi
         test_epoch_acc = 100 * test_correct / test_total
         test_losses.append(test_epoch_loss)
         test_acc.append(test_epoch_acc)
-        
-        # Update learning rate
+          # Update learning rate
         scheduler.step()
         
-        # Print statistics
+        # Print statistics with overfitting gap monitoring
+        overfitting_gap = abs(epoch_acc - test_epoch_acc)
         print(f'Epoch [{epoch + 1:2d}/{num_epochs}] | '
               f'Train Loss: {epoch_loss:.4f} | Train Acc: {epoch_acc:.2f}% | '
-              f'Val Loss: {test_epoch_loss:.4f} | Val Acc: {test_epoch_acc:.2f}%')
+              f'Val Loss: {test_epoch_loss:.4f} | Val Acc: {test_epoch_acc:.2f}% | '
+              f'Gap: {overfitting_gap:.2f}%')
+        
+        # Check for early stopping
+        if early_stopping(test_epoch_acc, model):
+            print(f"✅ Early stopping triggered at epoch {epoch + 1}")
+            print(f"🎯 Best validation accuracy: {early_stopping.best_val_acc:.2f}%")
+            break
         
         # Save checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:
@@ -267,7 +338,8 @@ def training_colab(trainloader, testloader, model, model_type, criterion, optimi
             }, checkpoint_path)
             print(f"   💾 Checkpoint saved: {checkpoint_path}")
 
-    print("\n🎉 Training completed!")
+    print("\n🎉 Enhanced Training completed!")
+    print(f"🏆 Best validation accuracy achieved: {early_stopping.best_val_acc:.2f}%")
       # Save the final trained model
     save_model_colab(model, model_type)
     
@@ -377,6 +449,38 @@ def evaluate_model_colab(model, testloader, device):
     
     return accuracy, cm_filename, results_filename
 
+# =============================================================================
+# ADVANCED TRAINING STRATEGIES - EARLY STOPPING
+# =============================================================================
+
+class EarlyStopping:
+    """
+    Stop training when validation accuracy stops improving
+    This addresses your issue of training for too many epochs without improvement
+    """
+    def __init__(self, patience=7, min_delta=0.001, restore_best_weights=True):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.restore_best_weights = restore_best_weights
+        self.best_val_acc = 0
+        self.wait = 0
+        self.best_weights = None
+        
+    def __call__(self, val_acc, model):
+        if val_acc > self.best_val_acc + self.min_delta:
+            self.best_val_acc = val_acc
+            self.wait = 0
+            if self.restore_best_weights:
+                self.best_weights = model.state_dict().copy()
+        else:
+            self.wait += 1
+            
+        if self.wait >= self.patience:
+            if self.restore_best_weights and self.best_weights:
+                model.load_state_dict(self.best_weights)
+            return True
+        return False
+
 # === MAIN TRAINING EXECUTION ===
 if __name__ == "__main__":
     print("🚀 CIFAR-10 CNN Training - Google Colab Version")
@@ -388,16 +492,9 @@ if __name__ == "__main__":
     
     # Display sample images
     print("📸 Sample images from dataset:")
-    display_sample_images(train_loader)
-    
-    # Initialize model
+    display_sample_images(train_loader)    # Initialize model
     print("🧠 Initializing CNN model...")
-    model = CNN_improved(num_classes=10)
-    
-    # Configuration personnalisée du dropout
-    if hasattr(model, 'set_dropout_config'):
-        model.set_dropout_config(start_rate=0.6, end_rate=0.1)
-        print(f"   Dropout: {model.get_current_dropout_rate():.3f} → {model.dropout_config['end_rate']:.3f}")
+    model = CNNImproved(num_classes=10)
     
     model = model.to(device)
     model_type = 'improved'
@@ -407,17 +504,18 @@ if __name__ == "__main__":
     print(f"   Epochs: {num_epochs}")
     
     # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    criterion = LabelSmoothingCrossEntropy(smoothing=0.1)
+    optimizer = torch.optim.AdamW(  # AdamW includes better weight decay
+        model.parameters(), 
+        lr=0.001, 
+        weight_decay=1e-4,  # L2 regularization
+        betas=(0.9, 0.999)
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         optimizer,
-        max_lr=0.01,
-        steps_per_epoch=len(train_loader),
-        epochs=num_epochs,
-        pct_start=0.3,
-        anneal_strategy='cos',
-        div_factor=25.0,
-        final_div_factor=1e4
+        T_0=10,  # First restart after 10 epochs
+        T_mult=1,  # Period multiplier
+        eta_min=1e-6  # Minimum learning rate
     )
     
     print("⚙️ Training configuration:")

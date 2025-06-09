@@ -9,7 +9,7 @@ print("=" * 50)
 import os
 
 # ⚠️ IMPORTANT: Replace with your actual GitHub repository URL
-REPO_URL = "https://github.com/YOUR_USERNAME/CIFAR-10.git"
+REPO_URL = "https://github.com/VianneyGG/CIFAR-10.git"
 
 if not os.path.exists('CIFAR-10'):
     print("📥 Cloning repository...")

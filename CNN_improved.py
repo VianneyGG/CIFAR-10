@@ -49,12 +49,12 @@ class CNN_improved(nn.Module):
         
         # Initial convolution - reduced complexity
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(32)
+        self.bn1 = nn.BatchNorm2d(64)
         
         # Progressive feature extraction with residual blocks
-        self.layer1 = self._make_layer(64, 96, num_blocks=2, stride=1, dropout_rate=0.1)
-        self.layer2 = self._make_layer(96, 192, num_blocks=2, stride=2, dropout_rate=0.2)
-        self.layer3 = self._make_layer(192, 384, num_blocks=2, stride=2, dropout_rate=0.3)
+        self.layer1 = self._make_layer(64, 96, num_blocks=2, stride=1, dropout_rate=0.05)
+        self.layer2 = self._make_layer(96, 192, num_blocks=2, stride=2, dropout_rate=0.1)
+        self.layer3 = self._make_layer(192, 384, num_blocks=2, stride=2, dropout_rate=0.15)
         
         # Global Average Pooling reduces parameters significantly
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))

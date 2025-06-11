@@ -48,13 +48,13 @@ class CNN_improved(nn.Module):
         super(CNN_improved, self).__init__()
         
         # Initial convolution - reduced complexity
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(32)
         
         # Progressive feature extraction with residual blocks
-        self.layer1 = self._make_layer(32, 64, num_blocks=2, stride=1, dropout_rate=0.1)
-        self.layer2 = self._make_layer(64, 128, num_blocks=2, stride=2, dropout_rate=0.2)
-        self.layer3 = self._make_layer(128, 256, num_blocks=2, stride=2, dropout_rate=0.3)
+        self.layer1 = self._make_layer(64, 96, num_blocks=2, stride=1, dropout_rate=0.1)
+        self.layer2 = self._make_layer(96, 192, num_blocks=2, stride=2, dropout_rate=0.2)
+        self.layer3 = self._make_layer(192, 384, num_blocks=2, stride=2, dropout_rate=0.3)
         
         # Global Average Pooling reduces parameters significantly
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -64,8 +64,8 @@ class CNN_improved(nn.Module):
         self.dropout2 = nn.Dropout(0.5)
         
         # Smaller classifier to prevent overfitting
-        self.fc1 = nn.Linear(256, 128)
-        self.fc2 = nn.Linear(128, num_classes)
+        self.fc1 = nn.Linear(384, 256)
+        self.fc2 = nn.Linear(256, num_classes)
         
         # Initialize weights
         self._initialize_weights()
@@ -126,9 +126,9 @@ class CNN_improved(nn.Module):
         progress = min(epoch / max_epochs, 1.0)
         
         # Dynamic dropout rates - start low, increase with training
-        base_rate = 0.1 + 0.2 * progress  # 0.1 to 0.3
-        mid_rate = 0.2 + 0.3 * progress   # 0.2 to 0.5
-        high_rate = 0.3 + 0.4 * progress  # 0.3 to 0.7
+        base_rate = 0.05 + 0.1 * progress  # 0.1 to 0.3
+        mid_rate = 0.1 + 0.15 * progress   # 0.2 to 0.5
+        high_rate = 0.15 + 0.2 * progress  # 0.3 to 0.7
         
         # Update layer dropout rates
         for layer in [self.layer1, self.layer2, self.layer3]:
@@ -142,8 +142,8 @@ class CNN_improved(nn.Module):
                         block.dropout1.p = high_rate
         
         # Update classifier dropout
-        self.dropout1.p = 0.2 + 0.3 * progress  # 0.2 to 0.5
-        self.dropout2.p = 0.3 + 0.4 * progress  # 0.3 to 0.7
+        self.dropout1.p = 0.1 + 0.15 * progress  # 0.2 to 0.5
+        self.dropout2.p = 0.15 + 0.2 * progress  # 0.3 to 0.7
     
     def print_model_info(self):
         """Print model architecture and parameter information"""

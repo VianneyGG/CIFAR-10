@@ -5,12 +5,9 @@ Write-Host "🚀 CIFAR-10 GitHub Repository Setup" -ForegroundColor Green
 Write-Host "=====================================" -ForegroundColor Green
 
 # Get user input for GitHub username
-$username = Read-Host "Enter your GitHub username"
-$repoName = Read-Host "Enter repository name (default: CIFAR-10)"
+$username = Read-Host "VianneyGG"
+$repoName = Read-Host "CIFAR-10"
 
-if ([string]::IsNullOrEmpty($repoName)) {
-    $repoName = "CIFAR-10"
-}
 
 $repoUrl = "https://github.com/$username/$repoName.git"
 

@@ -89,12 +89,12 @@ def load_cifar10_colab(batch_size=512, num_workers=2):
     """Colab-optimized CIFAR-10 data loading with enhanced data augmentation"""    # Enhanced transformations for training (combat overfitting)
     transform_train = transforms.Compose([
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(15),  # Increased from 10
+        transforms.RandomRotation(10),  # Increased from 10
         transforms.RandomAffine(0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),  # NEW
+        transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),  # NEW
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
-        transforms.RandomErasing(p=0.1),  # Applied after ToTensor
+        transforms.RandomErasing(p=0.05),  # Applied after ToTensor
     ])
     
     # Standard transformations for testing
@@ -241,7 +241,7 @@ def training_colab(trainloader, testloader, model, model_type, criterion, optimi
             optimizer.zero_grad()
             
             # Apply Mixup augmentation 40% of the time
-            if torch.rand(1) < 0.4:
+            if torch.rand(1) < 0.2:
                 mixed_inputs, labels_a, labels_b, lam = mixup_data(inputs, labels, alpha=1.0)
                 outputs = model(mixed_inputs)
                 loss = mixup_criterion(criterion, outputs, labels_a, labels_b, lam)
@@ -507,8 +507,8 @@ if __name__ == "__main__":
     criterion = LabelSmoothingCrossEntropy(smoothing=0.1)
     optimizer = torch.optim.AdamW(  # AdamW includes better weight decay
         model.parameters(), 
-        lr=0.001, 
-        weight_decay=1e-4,  # L2 regularization
+        lr=0.003, 
+        weight_decay=5e-5,  # L2 regularization
         betas=(0.9, 0.999)
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(

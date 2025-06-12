@@ -21,6 +21,8 @@ transform_train = transforms.Compose([
     transforms.RandomHorizontalFlip(),  # Randomly flip images horizontally
     transforms.RandomRotation(10),     # Randomly rotate by +/- 10 degrees
     transforms.RandomAffine(0, translate=(0.1, 0.1)),  # Random translation
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+    transforms.RandomGrayscale(p=0.1),  # NEW: Random grayscale
     transforms.ToTensor(),             # Convert to tensor
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))  # Normalize
 ])
@@ -31,6 +33,76 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))
 ])
 
+# === COMBINED LOSS FUNCTION ===
+class CombinedLoss(nn.Module):
+    """
+    Combinaison optimale de Focal Loss et Label Smoothing Cross Entropy
+    - Focal Loss: Se concentre sur les exemples difficiles (cat, bird, dog)
+    - Label Smoothing: Prévient la surconfiance et améliore la généralisation
+    - Poids adaptatif: Balance automatiquement selon la difficulté des classes
+    """
+    
+    def __init__(self, alpha=1.0, gamma=2.0, smoothing=0.1, focal_weight=0.6, num_classes=10):
+        super(CombinedLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.smoothing = smoothing
+        self.focal_weight = focal_weight
+        self.num_classes = num_classes
+        
+        # Tracking pour adaptation dynamique
+        self.class_difficulties = torch.ones(num_classes)
+        self.update_count = 0
+        
+    def forward(self, pred, target):
+        """
+        Forward pass avec combinaison adaptative des deux losses
+        
+        Args:
+            pred: Prédictions du modèle [batch_size, num_classes]
+            target: Labels vrais [batch_size]
+            
+        Returns:
+            loss: Loss combinée optimisée
+        """
+        
+        # === FOCAL LOSS COMPONENT ===
+        # Calcul de la Cross Entropy standard
+        ce_loss = F.cross_entropy(pred, target, reduction='none')
+        
+        # Calcul de la probabilité prédite pour la vraie classe
+        pt = torch.exp(-ce_loss)
+        
+        # Application du facteur focal (1-pt)^gamma
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        focal_loss = focal_loss.mean()
+        
+        # === LABEL SMOOTHING COMPONENT ===
+        # Création des labels "soft" avec smoothing
+        one_hot = torch.zeros_like(pred).scatter(1, target.view(-1, 1), 1)
+        smooth_labels = one_hot * (1 - self.smoothing) + (1 - one_hot) * self.smoothing / (self.num_classes - 1)
+        
+        # Calcul de la KL divergence
+        log_prob = F.log_softmax(pred, dim=1)
+        smooth_loss = F.kl_div(log_prob, smooth_labels, reduction='batchmean')
+        
+        # === ADAPTATION DYNAMIQUE DES POIDS ===
+        # Mise à jour des difficultés par classe (optionnel, pour monitoring)
+        with torch.no_grad():
+            for i in range(self.num_classes):
+                class_mask = (target == i)
+                if class_mask.sum() > 0:
+                    avg_confidence = pt[class_mask].mean()
+                    # Classes avec faible confiance = plus difficiles
+                    self.class_difficulties[i] = 0.9 * self.class_difficulties[i] + 0.1 * (1 - avg_confidence)
+        
+        # === COMBINAISON FINALE ===
+        # Balance entre focal (pour difficultés) et smoothing (pour stabilité)
+        combined_loss = self.focal_weight * focal_loss + (1 - self.focal_weight) * smooth_loss
+        
+        return combined_loss
+
+# === CIFAR-10 STATISTICS CALCULATION ===
 
 def calculate_cirfa10_stats():
     basic_transform = transforms.Compose([transforms.ToTensor()])
@@ -65,7 +137,9 @@ def calculate_cirfa10_stats():
     squared /= len(dataloader)
     std = torch.sqrt(squared - mean**2)
     return mean, std
-    
+
+# === CIFAR-10 DATA LOADER AND DISPLAY === 
+
 def load_cifar10(batch_size=4, num_workers=4):
     # Transformations pour les données
     transform = transforms.Compose([
@@ -73,7 +147,7 @@ def load_cifar10(batch_size=4, num_workers=4):
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
     ])
       # Chargement du dataset CIFAR-10
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform)
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform_train)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, 
                                               num_workers=num_workers, pin_memory=False, persistent_workers=True, prefetch_factor=2)
     
@@ -94,6 +168,8 @@ def display_images(images, labels, num_images=4):
         
     plt.tight_layout()
     plt.show()
+
+# === MODEL SAVING AND LOADING ===
 
 def save_model(model, model_type='simple'):
     """Save the trained model to disk."""
@@ -122,6 +198,30 @@ def load_model(model_type='simple'):
         print(f"No saved model found at {model_type}_model_cifar10.pth")
         model = model.to(device)
         return model
+
+# === MIXUP AUGMENTATION ===
+def mixup_data(x, y, alpha=1.0):
+    """
+    Mixup augmentation pour améliorer la généralisation
+    Mélange deux exemples et leurs labels
+    """
+    if alpha > 0:
+        lam = torch.distributions.beta.Beta(alpha, alpha).sample()
+    else:
+        lam = 1
+
+    batch_size = x.size()[0]
+    index = torch.randperm(batch_size).to(x.device)
+
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    """Calcul de la loss pour mixup"""
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
+# === TRAINING AND EVALUATION FUNCTIONS ===
 
 def training(trainloader, testloader, model, model_type, criterion, optimizer, scheduler, device, num_epochs):
     """Train the CNN model on CIFAR-10 dataset."""
@@ -152,12 +252,29 @@ def training(trainloader, testloader, model, model_type, criterion, optimizer, s
             # Zero the parameter gradients
             optimizer.zero_grad()
             
-            # Forward pass
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
+                        # Apply Mixup 30% du temps
+            if torch.rand(1) < 0.3:
+                mixed_inputs, labels_a, labels_b, lam = mixup_data(inputs, labels, alpha=1.0)
+                outputs = model(mixed_inputs)
+                loss = mixup_criterion(criterion, outputs, labels_a, labels_b, lam)
+                
+                # Pour le calcul de l'accuracy avec mixup
+                _, predicted = torch.max(outputs.data, 1)
+                correct += (lam * predicted.eq(labels_a).sum().item() + 
+                           (1 - lam) * predicted.eq(labels_b).sum().item())
+            else:
+                # Training standard avec CombinedLoss
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                
+                # Statistics pour les batches non-mixup
+                _, predicted = torch.max(outputs.data, 1)
+                correct += (predicted == labels).sum().item()
+            
             
             # Backward pass and optimize
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             
             # Statistics
@@ -251,13 +368,13 @@ def evaluate_model(model, testloader):
     plt.ylabel('True')
     plt.title('Confusion Matrix')
     plt.show()
-    
+
 if __name__ == "__main__":
     num_threads = os.cpu_count()-4
     torch.set_num_threads(num_threads)
     torch.set_num_interop_threads(num_threads)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     # Enable CPU optimizations
     if device.type == 'cpu':
         torch.backends.cudnn.benchmark = False

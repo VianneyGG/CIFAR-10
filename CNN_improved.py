@@ -66,9 +66,16 @@ class CNN_improved(nn.Module):
         # Smaller classifier to prevent overfitting
         self.fc1 = nn.Linear(384, 256)
         self.fc2 = nn.Linear(256, num_classes)
-        
-        # Initialize weights
+          # Initialize weights
         self._initialize_weights()
+        
+        # Dropout configuration tracking
+        self.dropout_config = {
+            'start_rate': 0.1,
+            'end_rate': 0.5,
+            'current_epoch': 0,
+            'max_epochs': 100
+        }
         
     def _make_layer(self, in_channels, out_channels, num_blocks, stride, dropout_rate):
         """Create residual blocks with progressive dropout"""
@@ -104,8 +111,7 @@ class CNN_improved(nn.Module):
         # Global average pooling
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        
-        # Classification head with dropout
+          # Classification head with dropout
         x = self.dropout2(x)
         x = F.relu(self.fc1(x))
         x = self.dropout2(x)
@@ -122,6 +128,10 @@ class CNN_improved(nn.Module):
         Dynamic dropout adjustment based on training progress
         Increases dropout as training progresses to prevent overfitting
         """
+        # Update configuration
+        self.dropout_config['current_epoch'] = epoch
+        self.dropout_config['max_epochs'] = max_epochs
+        
         # Calculate progression factor (0 to 1)
         progress = min(epoch / max_epochs, 1.0)
         
@@ -230,3 +240,15 @@ if __name__ == "__main__":
     
     print(f"\n✅ Model test completed successfully!")
     print(f"📊 Model ready for enhanced training with mixup and label smoothing")
+    
+    def update_dropout(self, epoch, max_epochs):
+        """
+        Méthode de compatibilité - redirige vers update_dropout_rates
+        """
+        return self.update_dropout_rates(epoch, max_epochs)
+    
+    def get_current_dropout_rate(self):
+        """
+        Retourne le taux de dropout actuel de la première couche
+        """
+        return self.dropout1.p

@@ -79,6 +79,6 @@ def auto_commit_results(accuracy, files_created):
 print(f"\n🎯 Starting CIFAR-10 training...")
 
 # Execute the main training script
-exec(open('cifar10_colab.py').read())
+exec(open('cifar10_main.py').read())
 
 print(f"\n🎉 Training completed! Check your repository for saved models and results.")

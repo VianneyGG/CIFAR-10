@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
@@ -237,7 +238,7 @@ def training(trainloader, testloader, model, model_type, criterion, optimizer, s
         running_loss = 0.0
         correct = 0
         total = 0
-        model.update_dropout(epoch, num_epochs)  # Update dropout rate if using improved model
+        model.update_dropout_rates(epoch, num_epochs)  # Update dropout rate if using improved model
         
         # Use a progress bar for batches too
         batch_pbar = tqdm(enumerate(trainloader, 0), 
@@ -271,17 +272,14 @@ def training(trainloader, testloader, model, model_type, criterion, optimizer, s
                 _, predicted = torch.max(outputs.data, 1)
                 correct += (predicted == labels).sum().item()
             
-            
-            # Backward pass and optimize
+              # Backward pass and optimize
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             
             # Statistics
             running_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
-            correct += (predicted == labels).sum().item()
         
             # Update progress bar
             if i % 10 == 0:
@@ -389,10 +387,9 @@ if __name__ == "__main__":
     
     print("🚀 Utilisation du modèle amélioré avec Cosine Scheduled Dropout")
     model = CNN_improved(num_classes=10)
-    
-    # Configuration personnalisée du dropout (optionnel)
-    model.set_dropout_config(start_rate=0.6, end_rate=0.1)
-    print(f"Dropout configuré: {model.get_current_dropout_rate():.3f} → {model.dropout_config['end_rate']:.3f}")
+      # Configuration du dropout au début seulement (optionnel)
+    print(f"Dropout initial configuré: {model.layer1[0].dropout1.p:.3f}")
+    print("Dropout sera ajusté dynamiquement pendant l'entraînement")
     
     model = model.to(device)
     model_type = 'improved'
@@ -402,9 +399,9 @@ if __name__ == "__main__":
     
     # Load CIFAR-10 dataset
     train_loader, testloader = load_cifar10(batch_size, num_workers=4)
-    
-    # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
+      # Define loss function and optimizer
+    criterion = CombinedLoss(alpha=1.0, gamma=2.0, smoothing=0.1, focal_weight=0.6, num_classes=10)
+    print("🎯 Utilisation de CombinedLoss (Focal + Label Smoothing)")
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,

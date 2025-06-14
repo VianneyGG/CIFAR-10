@@ -502,26 +502,26 @@ if __name__ == "__main__":
     # Training parameters
     num_epochs = 30
     print(f"   Epochs: {num_epochs}")
-    
-    # Define loss function and optimizer
+      # Define loss function and optimizer - STABILIZED VERSION
     criterion = LabelSmoothingCrossEntropy(smoothing=0.1)
     optimizer = torch.optim.AdamW(  # AdamW includes better weight decay
         model.parameters(), 
-        lr=0.003, 
-        weight_decay=5e-5,  # L2 regularization
+        lr=0.002,           # REDUCED from 0.003 to reduce oscillations
+        weight_decay=1e-4,  # INCREASED regularization for stability
         betas=(0.9, 0.999)
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer,
-        T_0=10,  # First restart after 10 epochs
-        T_mult=1,  # Period multiplier
-        eta_min=1e-6  # Minimum learning rate
-    )
     
-    print("⚙️ Training configuration:")
-    print(f"   Optimizer: Adam (lr=0.001)")
-    print(f"   Scheduler: OneCycleLR (max_lr=0.01)")
-    print(f"   Loss: CrossEntropyLoss")
+    # STABILIZED SCHEDULER - No more restarts that cause oscillations
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=num_epochs,   # Simple cosine decay over all epochs
+        eta_min=1e-6        # Minimum learning rate
+    )    
+    print("⚙️ STABILIZED Training configuration:")
+    print(f"   Optimizer: AdamW (lr=0.002, weight_decay=1e-4)")
+    print(f"   Scheduler: CosineAnnealingLR (no restarts)")
+    print(f"   Loss: LabelSmoothingCrossEntropy (smoothing=0.1)")
+    print(f"   🎯 Anti-oscillation measures activated")
       # Start training
     print("\n🎯 Starting training...")
     train_losses, test_losses, train_acc, test_acc, plot_file = training_colab(
